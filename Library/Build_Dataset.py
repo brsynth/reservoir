@@ -16,7 +16,7 @@ from cobra.flux_analysis import pfba
 from sklearn.utils import shuffle
 
 ###############################################################################
-# Cobra's model utilities and matrices (written by Bastien Mollet)
+# Cobra's model utilities and matrices 
 ###############################################################################
 
 def get_gene_id_from_name(model, gnames):
@@ -162,6 +162,8 @@ def run_cobra(model,
     # run FBA for primal objective
     V = {x.id: 0 for x in model.reactions}
     model.objective = objective[0]
+    if verbose > 1:
+        print(f'Start Cobra Objectif = {objective}')    
     timeout = 1
     signal.signal(signal.SIGALRM, handle_timeout)
     try: 
@@ -173,8 +175,9 @@ def run_cobra(model,
         signal.alarm(0)
     except Exception as e: 
         V_obj = 0
-    if verbose:
-        print(f'Objectif = {objective}, {method}, {V_obj}')
+        signal.alarm(0)
+    if verbose > 1:
+        print(f'End Cobra Objectif = {objective}, {method}, {V_obj}')
 
     # get the fluxes for all model reactions
     if V_obj:
@@ -183,7 +186,100 @@ def run_cobra(model,
             if math.fabs(float(V[x.id])) < cobra_min_flux:  # !!!
                 V[x.id] = 0
     model.medium = modelmedium # reset to initial medium
+ 
+    return V, V_obj
+
+import threading
+import warnings
+import math
+
+def run_cobra(model,
+              objective,
+              medium,
+              method='FBA',
+              genekos=[],
+              objective_fraction=0.75,
+              cobra_min_flux=1.0e-8,
+              verbose=False):
+    """
+    Run FBA optimization to compute reaction fluxes on the provided model.
     
+    Inputs:
+    - model: COBRA model object
+    - objective: a list of reactions (first two only are considered)
+    - medium: upper flux values for minimal and variable media
+    - method: 'FBA' or 'pFBA'
+    - genekos: a list of genes to knock out
+    - objective_fraction: fraction of the first objective to maintain
+    - cobra_min_flux: minimum flux threshold
+    - verbose: verbosity level
+    
+    Outputs:
+    - V: reaction fluxes computed by FBA
+    - V_obj: flux value for the objective
+    """
+
+    warnings.filterwarnings("ignore")
+
+    # Set the medium and objective
+    modelmedium = model.medium.copy() 
+    med = model.medium  # Modify medium
+    for k in med.keys():  # Reset the medium
+        med[k] = 0
+    for k in medium.keys():  # Add specified compounds to medium
+        if k in med.keys():
+            med[k] = float(medium[k])
+    model.medium = med
+
+    print_medium(model.medium, cobra_min_flux=cobra_min_flux, verbose=verbose)
+    
+    # Apply gene knockouts
+    kos = get_gene_id_from_name(model, genekos)
+    for ko in kos:
+        if verbose:
+            print(f'KO gene name {genekos} id {ko}')
+        model.genes.get_by_id(ko).knock_out()
+
+    # Run FBA for the primary objective
+    V = {x.id: 0 for x in model.reactions}
+    model.objective = objective[0]
+
+    if verbose > 1:
+        print(f'Start Cobra Objective = {objective}')    
+
+    # Define a function to stop execution if it takes too long
+    def timeout_handler():
+        raise TimeoutError("Optimization took too long")
+
+    # Set up a timer (1 second timeout)
+    timeout = 1
+    timer = threading.Timer(timeout, timeout_handler)
+
+    try: 
+        timer.start()  # Start timer
+        solution = cobra.flux_analysis.pfba(model) if method == 'pFBA' else model.optimize()
+        V_obj = solution.fluxes[objective[0]]
+        V_obj = 0 if V_obj < cobra_min_flux else V_obj    
+    except Exception as e: 
+        V_obj = 0
+        if verbose:
+            print(f"Error during optimization: {e}")
+    finally:
+        timer.cancel()  # Stop the timer
+
+    if verbose > 1:
+        print(f'End Cobra Objective = {objective}, {method}, {V_obj}')
+
+    # Get the fluxes for all model reactions
+    if V_obj:
+        for x in model.reactions:
+            V[x.id] = solution.fluxes[x.id]
+            if math.fabs(float(V[x.id])) < cobra_min_flux:
+                V[x.id] = 0
+
+    # Reset medium to initial state
+    model.medium = modelmedium  
+ 
     return V, V_obj
 
 ###############################################################################
@@ -313,7 +409,7 @@ def create_medium_run_cobra(model, objective, medium, X,
     # Create medium from X and run cobra
     # Input:
     # - model: the cobra model
-    # - objective: the list of objectiev fluxes to maximize
+    # - objective: the list of objective fluxes to maximize
     # - medium: list of reaction fluxes in medium
     # - X, y: training set where X is used to feed medium values
     # - scaler : to scale X values
@@ -334,16 +430,16 @@ def create_medium_run_cobra(model, objective, medium, X,
             m = list(varmed.keys())[j]
             (l,v) = varmed[m]
             valmed[m] = X[i,j] * scaler
+        if verbose == 2:
+            print(f'start create_medium_run_cobra i={i}/{L}')
         try: 
-            V[i], obj[i] = run_cobra(model, 
-                                  objective, 
-                                  valmed, 
-                                  method='FBA', 
-                                  genekos=genekos,
-                                  verbose=verbose)
+            V[i], obj[i] = run_cobra(model, objective, valmed, method='FBA', 
+                                     genekos=genekos, verbose=verbose)
         except:
             obj[i] = 0
             V[i] = {r.id: 0 for r in model.reactions}
+        if verbose == 2:
+            print(f'done create_medium_run_cobra i={i}/{L}')
             
     obj = np.asarray(list(obj.values()))
     V = np.asarray([list(V[i].values()) for i in range(L)])

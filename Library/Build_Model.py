@@ -6,7 +6,8 @@
 # - ANN_dense: a simple Dense neural network
 # - AMN_QP: an ANN_dense with custom lost ala PINN
 # Authors: Jean-loup Faulon, jfaulon@gmail.com 
-# Updates: 24/11/2023, 12/04/2024, 22/06/2024 (KOs)
+# Updates: 24/11/2023, 12/04/2024, 22/06/2024 (KOs), 
+#          28/10/2024 (regression replaced by scoring_function)
 ##############################################################################
 
 from Library.Import import *
@@ -18,11 +19,8 @@ from Library.Import import *
 def sharp_sigmoid(x):
     # Custom activation function
     return K.sigmoid(10000.0 * x)
-
-from tensorflow.keras.utils import get_custom_objects
-#from tf.keras.utils.generic_utils import CustomObjectScope
-from tensorflow.keras.utils import CustomObjectScope
-from tensorflow.keras.layers import Activation
+from tensorflow.keras.utils import get_custom_objects, CustomObjectScope
+from tensorflow.keras.layers import Activation, Lambda
 get_custom_objects().update({'sharp_sigmoid': Activation(sharp_sigmoid)})
 
 def my_mse(y_true, y_pred):
@@ -57,7 +55,7 @@ def CROP(dimension, start, end):
     # Crops (or slices) a Tensor on a given dimension from start to end
     # example : to crop tensor x[:, :, 5:10]
     # call x = crop(2,5,10)(x) to slice the second dimension
-    from keras.layers import Lambda
+    from tensorflow.keras.layers import Lambda
     def func(x):
         if dimension == 0:
             return x[start: end]
@@ -167,10 +165,9 @@ def Loss_all(V, Vinko, Vout, parameter):
 # Dense model
 # ##############################################################################
 
-from keras.layers import Input, Dense, Dropout, Flatten, Activation, BatchNormalization
-from keras.layers import Reshape, multiply
-from keras.layers import concatenate, add, subtract, dot
-from keras.layers import Activation
+from tensorflow.keras.layers import Input, Dense, Dropout, Flatten, Activation, BatchNormalization
+from tensorflow.keras.layers import Reshape, multiply
+from tensorflow.keras.layers import concatenate, add, subtract, dot
 
 def input_ANN_Dense(parameter, verbose=False):
     # Shape X and Y depending on the model used
@@ -207,22 +204,24 @@ def Dense_layers(inputs, parameter, trainable=True, verbose=False):
                     activation=activation, 
                     trainable=bool(trainable)) (hidden) 
     if verbose:
-        print(f'Dense layer n_hidden: {n_hidden} hidden_dim: {hidden_dim} \
-input_dim: {inputs.shape[1]} output_dim: {output_dim} \
-activation: {activation} trainable: {trainable}')
+        print(f'Dense layer n_hidden: {n_hidden} hidden_dim: {hidden_dim} '\
+              f'input_dim: {inputs.shape[1]} output_dim: {output_dim} '\
+              f'activation: {activation} trainable: {trainable}')
         
     return outputs
 
 def ANN_Dense(parameter, trainable=True, verbose=False):
     # A standard Dense model with several layers
-
+    from sklearn.metrics import r2_score
+    
     input_dim, output_dim = parameter.input_dim, parameter.output_dim
     inputs = Input(shape=(input_dim,))
     outputs = Dense_layers(inputs, parameter,
                            trainable=trainable, verbose=verbose)
     model = keras.models.Model(inputs=[inputs], outputs=[outputs])
-    loss = 'mse' if parameter.regression else 'binary_crossentropy'
-    metrics = ['mae'] if parameter.regression else ['acc']
+    regression = True if parameter.scoring_function == r2_score else False
+    loss = 'mse' if regression else 'binary_crossentropy'
+    metrics = ['mae'] if regression else ['acc']
     model.compile(loss=loss, optimizer='adam', metrics=metrics)
     if verbose == 2: print(model.summary())
     if verbose: print(f'nbr parameters: {model.count_params()}')
@@ -329,10 +328,6 @@ def AMN_QP(parameter, trainable=True, verbose=False):
 # Train and Evaluate all models
 # ##############################################################################
 
-from sklearn.model_selection import cross_val_score, KFold
-from sklearn.metrics import mean_squared_error, r2_score, accuracy_score
-from sklearn.model_selection import train_test_split
-
 class ReturnStats:
     def __init__(self, v1, v2, v3, v4, v5, v6, v7, v8):
         self.train_objective = (v1, v2)
@@ -342,12 +337,12 @@ class ReturnStats:
     def printout(self, jobname, time=0): 
         # Printing Stats
         print(f'Stats for {jobname} CPU-time {time:.4f}')
-        print(f'{jobname} R2 = {self.train_objective[0]:.4f} \
-± {self.train_objective[1]:.4f} \
-Constraint = {self.train_loss[0]:.4f} ± {self.train_loss[1]:.4f}')
-        print(f'{jobname} Q2 = {self.test_objective[0]:.4f} \
-± {self.test_objective[1]:.4f} \
-Constraint = {self.test_loss[0]:.4f} +/- {self.test_loss[1]:.4f}')
+        print(f'{jobname} R2 = {self.train_objective[0]:.4f}' \
+              f'± {self.train_objective[1]:.4f} '\
+              f'Constraint = {self.train_loss[0]:.4f} ± {self.train_loss[1]:.4f}')
+        print(f'{jobname} Q2 = {self.test_objective[0]:.4f} '\
+              f'± {self.test_objective[1]:.4f} '\
+              f'Constraint = {self.test_loss[0]:.4f} ± {self.test_loss[1]:.4f}')
 
 def print_loss_evaluate(y_true, y_pred, Vinko, parameter):
     # Print all losses
@@ -390,20 +385,18 @@ def evaluate_model(model, x, y_true, parameter, verbose=False):
     # Return y_pred, stats (R2/Acc) for objective
     # and error on constraints for regression and classification
     # if input model than x, y_true sent to input model
-
+    from sklearn.metrics import r2_score
+    
     y_pred = model.predict(x, verbose=verbose) # whole y prediction
 
-    # AMN models have nbr constraints added to y_true
-    end = y_true.shape[1] - parameter.number_constraint \
-    if 'AMN' in parameter.model_type else y_true.shape[1] 
-    if parameter.regression:
-        yt, yp = y_true[:,:end], y_pred[:,:end]
-        obj = r2_score(yt, yp, multioutput='variance_weighted')
+    # Ignore constraints added to y_true
+    end = y_true.shape[1] - parameter.number_constraint
+    yt, yp = y_true[:,:end], y_pred[:,:end]
+    if parameter.scoring_function == r2_score:
+        obj = parameter.scoring_function(yt, yp, 
+                                         multioutput='variance_weighted')
     else:
-        end = y_true.shape[1]
-        obj = keras.metrics.binary_accuracy(y_true[:,:end],
-                                            y_pred[:,:end]).numpy()      
-        obj = np.count_nonzero(obj)/obj.shape[0]
+        obj = parameter.scoring_function(yt, yp.round()) 
 
     # compute stats on constraints
     loss = get_loss_evaluate(x, y_true, y_pred, parameter, verbose=verbose)
@@ -457,7 +450,7 @@ def train_model(parameter, Xtrain, Ytrain, Xtest, Ytest,
     #   parameter.model, the function used to create the model
     #   parameter.input_model, the function used to shape the model inputs
     #   parameter.X and parameter.Y, the dataset
-    #   parameter.regression (boolean) if false classification
+    #   parameter.scoring_function for regression or classification
     # Outputs:
     # - Net: the trained network
     # - ytrain, ytest: y values for training and test sets
@@ -500,7 +493,7 @@ def train_model(parameter, Xtrain, Ytrain, Xtest, Ytest,
             ytrain, stats = evaluate_model(Net.model, Xtrain, Ytrain,
                                        model, verbose=verbose)
             otrain, ltrain = stats.train_objective[0], stats.train_loss[0]
-            if failure and otrain < 0:
+            if failure and otrain <= 0:
                 reinitialize_weights(Net.model)
             else:
                 break
@@ -552,7 +545,7 @@ def train_evaluate_model(parameter, failure=0, temperature=0, verbose=False):
     #   parameter.model, the function used to create the model
     #   parameter.input_model, the function used to shape the model inputs
     #   parameter.X and parameter.Y, the dataset
-    #   parameter.regression (boolean) if false classification
+    #   parameter.scoring_function for regression or classification
     # Outputs:
     # - the best model (highest Q2/Acc on kfold test sets)
     # - the values predicted for each fold (if param.niter = 0)
@@ -560,6 +553,8 @@ def train_evaluate_model(parameter, failure=0, temperature=0, verbose=False):
     # - the mean R2/Acc on the test sets
     # - the mean constraint value on the test sets
     # Must have verbose=True to verbose the fit 
+
+    from sklearn.model_selection import KFold
     
     param = copy.copy(parameter)
     X, Y = model_input(param, verbose=verbose)
@@ -614,14 +609,23 @@ def train_evaluate_model(parameter, failure=0, temperature=0, verbose=False):
 
     return Netmax, Ypred, stats, history
 
-###############################################################################
+################################################################################
 # Create, save, load and print Neural Model
 # ##############################################################################
 
 from Library.Build_Dataset import TrainingSet
-from keras.models import load_model
-from keras.models import Model
-from keras.models import model_from_json
+from tensorflow.keras.models import load_model
+from tensorflow.keras.models import Model
+from tensorflow.keras.models import model_from_json
+    
+from sklearn.metrics import r2_score 
+from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef
+SCORING_FUNCTIONS = {
+    'r2_score': r2_score,
+    'accuracy_score': accuracy_score,
+    'f1_score': f1_score,
+    'matthews_corrcoef': matthews_corrcoef
+}
 
 class Neural_Model:
     # To save, load & print all kinds of models including reservoirs
@@ -635,9 +639,9 @@ class Neural_Model:
                  n_hidden=0, hidden_dim=0, # default no hidden layer
                  activation='relu', # activation for last layer
                  # for all trainable models adam default learning rate = 1e-3
-                 regression=True, 
+                 scoring_function=r2_score, 
                  epochs=0, train_rate=1e-3, dropout=0.25, batch_size=5,
-                 niter=0, xfold=5, # Cross valisation LOO does not work
+                 niter=0, xfold=5, # Cross validation LOO does not work
                  verbose=False
                 ):
         # Create empty object
@@ -656,7 +660,7 @@ class Neural_Model:
         self.activation = activation
         # Training parameters
         self.epochs = epochs
-        self.regression = regression
+        self.scoring_function = scoring_function
         self.train_rate = train_rate
         self.dropout = dropout
         self.batch_size = batch_size
@@ -672,7 +676,7 @@ class Neural_Model:
     def get_parameter(self, verbose=False):
         from Library.Build_Dataset import TrainingSet, get_index_from_id
         # load parameter file if provided
-        if self.trainingfile == None:
+        if self.trainingfile is None:
             return
         if not os.path.isfile(self.trainingfile+'.npz'):
             print(self.trainingfile+'.npz')
@@ -691,10 +695,8 @@ class Neural_Model:
         self.Pout = parameter.Pout # Measure matrix from reactions to measures
         self.X, self.Y = parameter.X, parameter.Y # Training set 
         # Update input_dim and output_dim
-        self.input_dim = self.input_dim if self.input_dim > 0 \
-        else parameter.X.shape[1]
-        self.output_dim = self.output_dim if self.output_dim > 0 \
-        else parameter.Y.shape[1]
+        self.input_dim = self.input_dim if self.input_dim > 0 else parameter.X.shape[1]
+        self.output_dim = self.output_dim if self.output_dim > 0 else parameter.Y.shape[1]
         if self.input_dim != parameter.X.shape[1]:
             end = min(parameter.X.shape[1], self.input_dim)
             self.X = self.X[:,:end]
@@ -707,6 +709,7 @@ class Neural_Model:
     def save(self, filename, verbose=False):
         fileparam = filename + "_param.csv"
         filemodel = filename + "_model.h5"
+        scoring_function_name = self.scoring_function.__name__
         s = str(self.trainingfile) + ","\
                     + str(self.model_type) + ","\
                     + str(self.number_constraint) + ","\
@@ -718,14 +721,13 @@ class Neural_Model:
                     + str(self.hidden_dim) + ","\
                     + str(self.activation) + ","\
                     + str(self.epochs) + ","\
-                    + str(self.regression) + ","\
+                    + scoring_function_name + ","\
                     + str(self.train_rate) + ","\
                     + str(self.dropout) + ","\
                     + str(self.batch_size) + ","\
                     + str(self.niter) + ","\
                     + str(self.xfold)
         with open(fileparam, "w") as h:
-            # print(s, file = h)
             h.write(s)
         self.model.save(filemodel)
 
@@ -754,7 +756,11 @@ class Neural_Model:
         self.activation = str(K[9])
         # Training parameters
         self.epochs = int(K[10])
-        self.regression = True if K[11] == 'True' else False
+        # Handle old 'regression' parameter for backward compatibility
+        if K[11] in ['True', 'False']:
+            self.scoring_function = r2_score if K[11] == 'True' else accuracy_score
+        else:
+            self.scoring_function = SCORING_FUNCTIONS[K[11]]
         self.train_rate = float(K[12])
         self.dropout = float(K[13])
         self.batch_size = int(K[14])
@@ -792,7 +798,7 @@ class Neural_Model:
             print(f'activation function: {self.activation}')
         if self.epochs > 0:
             print(f'training epochs: {self.epochs}')
-            print(f'training regression: {self.regression}')
+            print(f'scoring function: {self.scoring_function.__name__}')
             print(f'training learn rate: {self.train_rate}')
             print(f'training dropout: {self.dropout}')
             print(f'training batch size: {self.batch_size}')

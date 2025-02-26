@@ -98,7 +98,22 @@ def decision_tree_classifier(X, y, regression=False):
     from sklearn.tree import DecisionTreeClassifier 
     dtree_model = DecisionTreeClassifier(max_depth = 10).fit(X, y) 
     return dtree_model
-    
+
+def GP(X, y, regression=False):
+    # Regression or classification with GaussianProcess
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process import GaussianProcessClassifier
+    from sklearn.gaussian_process.kernels import RBF, DotProduct, WhiteKernel
+    if regression:
+        kernel = DotProduct() + WhiteKernel()
+        gp_model = GaussianProcessRegressor(kernel=kernel,
+                                random_state=0).fit(X, y)
+    else:
+        kernel = 1.0 * RBF(1.0)
+        gp_model = GaussianProcessClassifier(kernel=kernel,
+                                    random_state=0).fit(X, y)
+    return gp_model
+
 def XGB(X, y, regression=False):
     # Regression or classification with a XGBoost
     from xgboost import XGBRegressor
@@ -110,35 +125,40 @@ def XGB(X, y, regression=False):
     return xgb_model
 
 def MLP(X, y, regression=False):
-    # Multilinear perceptron
+    # Regression or classification with Multilinear perceptron
     from sklearn.neural_network import MLPClassifier, MLPRegressor
-    hidden_size = 2*int(X.shape[1])
+    hidden_size = 16 if X.shape[1] == 2 else 2*int(X.shape[1]) 
     if regression:
         model = MLPRegressor(hidden_layer_sizes = (hidden_size),
                              solver ='adam', 
                              max_iter=10000,
                              early_stopping = True,
-                             learning_rate = 'adaptive')
+                             learning_rate='adaptive')
     else:
         model = MLPClassifier(hidden_layer_sizes = (hidden_size),
                              solver ='adam', 
-                             max_iter=1000,
-                             early_stopping = True,
-                             learning_rate = 'adaptive')
+                             max_iter=10000,
+                             early_stopping=False,
+                             learning_rate='adaptive')
     model.fit(X, y.flatten())
     return model
 
 def Linear(X, y, regression=False):
+    # Regression with LinearRegression
     from sklearn.linear_model import LinearRegression
     if regression == False:
         sys.exit('No classification with LinearRegression') 
     model = LinearRegression().fit(X, y)
     return model
 
+###############################################################################
+# LeaveXout functions 
+###############################################################################
+
 def best_accuracy_threshold(y_pred, y_true):
     # Get best accuracy moving a treshold 
     # best splitting labels
-    from sklearn.metrics import roc_curve, accuracy_score, r2_score
+    from sklearn.metrics import roc_curve, accuracy_score
 
     # Compute the ROC curve
     fpr, tpr, thresholds = roc_curve(y_true, y_pred)
@@ -172,9 +192,11 @@ def best_accuracy_threshold(y_pred, y_true):
 
     return best_accuracy, best_accuracy_threshold
 
+
+from sklearn.metrics import r2_score
 def LXO(X, y, 
         learner=Linear, 
-        regression=True, 
+        scoring_function=r2_score, 
         xfold=10, 
         seed=0,
         verbose=False):
@@ -182,15 +204,16 @@ def LXO(X, y,
     
     from sklearn.model_selection import KFold
     from sklearn.preprocessing import LabelEncoder
-    from sklearn.metrics import accuracy_score, r2_score
     
+    regression = True if scoring_function==r2_score else False
     le = LabelEncoder()
     y_pred = 0 * y
     if xfold < 2:
-        y = np.asarray(y).reshape(-1,1)
+        # y = np.asarray(y).reshape(-1,1)
+        y = y if regression else le.fit_transform(y)
         model = learner(X, y, regression=regression)
         y_pred = model.predict(X)
-        y_pred = y_pred if regression else le.inverse_transform(y_pred)
+        y_pred = y_pred if regression else le.inverse_transform(y_pred.ravel())
     else:
         kfold = KFold(n_splits=xfold, shuffle=True, random_state=seed)
         for train, test in kfold.split(X, y):
@@ -204,53 +227,160 @@ def LXO(X, y,
                 y_pred[test[i]] = y_pred_test[i]
                 
     if verbose == 2:
-        score = r2_score(y, y_pred) if regression else accuracy_score(y, y_pred)
-        print(f'iter: {n+1}/{niter} score: {score:.2f}')
+        print(f'score: {scoring_function(y, y_pred):.2f}')
         
     return y_pred
     
-def LeaveXout(X, y, F,learner=Linear, regression=True,
-              xfold=10, niter=5, selection=True, verbose=False):
-    # Perform LXO withfeature selection removing features one at a time
-    
-    from sklearn.metrics import accuracy_score, r2_score
+def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
+              xfold=10, niter=5, selection=0, verbose=False):
+    # Perform LXO with feature selection removing features one at a time
+    # Selection is the minimum number of features selected
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.ensemble import RandomForestRegressor
 
-    if selection:
-        SCORE_BEST = 0
-        while X.shape[1] > 1:
+    regression = True if scoring_function==r2_score else False
+    F = np.asarray(F)
+    if selection > 0:
+        
+        # First reduce: Use RandomForest to rank features by importance
+        if regression:
+            rf = RandomForestRegressor(random_state=42)
+        else:
+            rf = RandomForestClassifier(random_state=42)
+        rf.fit(X, y)
+        importances = rf.feature_importances_
+    
+        # Select the top features based on importance 
+        # Select top 10*selection features
+        top_features_idx = np.argsort(importances)[-10*selection:]  
+        X = X[:, top_features_idx]
+        F = F[top_features_idx]
+        
+        # Remove feature one at a time
+        # Keep best score
+        SCORE_BEST, F_BEST, scores = float('-inf'), F, []
+        while X.shape[1] > selection:
             score_best = float('-inf')
             for I in range(X.shape[1]):
                 XX = np.delete(X, I, 1)
                 FF = np.delete(F, I, 0)
-                score_avr, score_dev = [], []
-                y_pred = LXO(XX, y.ravel(), learner=learner,
-                         xfold=xfold, regression=regression, 
-                         verbose=verbose)
-                score = r2_score(y, y_pred) if regression \
-                else accuracy_score(y, y_pred)
+                scores = []
+                for i in range(niter):
+                    y_pred = LXO(XX, y.ravel(), learner=learner,
+                        xfold=xfold, scoring_function=scoring_function, 
+                        seed=i, verbose=verbose)
+                    score = scoring_function(y, y_pred)
+                    scores.append(score)
+                score = np.mean(np.asarray(scores))
+                stdev = np.std(np.asarray(scores))
                 if score > score_best:
-                    score_best = score
-                    I_best, X_best, F_best = I, np.copy(XX), np.copy(FF)
-                
+                    score_best, score_dev = score, stdev
+                    I_best, X_best, F_best = I, np.copy(XX), np.copy(FF)     
             if verbose:
                 print(f'Size: {X_best.shape[1]} Remove: {F[I_best]} '
-                      f'Score: {score_best:.3f}')
+                      f'Score: {score_best:.3f}±{score_dev:.3f}')
             X, F = X_best, F_best
             if score_best > SCORE_BEST:
                 SCORE_BEST, X_BEST, F_BEST = \
-                score_best, X_best, F_best
+                score_best, X_best, F_best        
         X, F = X_BEST, F_BEST
-
-    scores = []
-    for i in range(niter):
-        y_pred = LXO(X, y.ravel(), learner=learner,
-                     xfold=xfold, regression=regression, 
-                     seed=i, verbose=verbose)
-        score = r2_score(y, y_pred) if regression \
-        else accuracy_score(y, y_pred)
-        scores.append(score)
-    score_avr = np.mean(np.asarray(scores))
-    score_dev = np.std(np.asarray(scores))  
         
-    return score_avr, score_dev, F
+    # Compute final score
+    scores, y_pred = [], {}
+    for i in range(10*niter):
+        y_pred[i] = LXO(X, y.ravel(), learner=learner,
+                        xfold=xfold, scoring_function=scoring_function, 
+                        seed=i, verbose=verbose)
+        score = scoring_function(y, y_pred[i])
+        scores.append(score)
+        
+    score_avr = np.mean(np.asarray(scores))
+    score_dev = np.std(np.asarray(scores))
+    y_pred = np.asarray(list(y_pred.values()))
+    y_pred_avr = np.mean(y_pred, axis=0)
+    y_pred_dev = np.std(y_pred, axis=0)
+    if verbose:
+        print('y_true y_pred_avr±y_pred_dev')
+        for i in range(y.shape[0]):
+            print(f'{y[i]} {y_pred_avr[i]}±{y_pred_dev[i]}')
+            
+    return score_avr, score_dev, np.asarray(F)
+
+
+###############################################################################
+# Binarize feature function
+###############################################################################
+
+def map_and_binarize_feature(Xf, yf, Xr, yr, threshold, 
+                             regression=True, verbose=False):
+    # Binarize Xf features and rank features Xf and Xr using RandomForest
+    # Map feature Xf to Xr according to ranking
+    # If the number of features Nr is greater than 
+    # the number of features Nf,  additional features 
+    # are generated duplicating features in Xf.
+    # Finally feature Xf are binarized.
+    # Parameters:
+    # threshold: The number threshold for binarization
+    # Returns: A binary version of the transformed feature Xf.
+    from sklearn.preprocessing import Binarizer
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier   
+    from sklearn.inspection import permutation_importance   
     
+    def rank_feature(X, y, regression=True):
+        # Rank features based on permutation_importance
+        # using random forest regressor
+        if regression:
+            model = RandomForestRegressor(n_estimators=100, 
+                                          random_state=42)
+        else:
+            model = RandomForestClassifier(n_estimators=100, 
+                                           random_state=42)
+            
+        model.fit(X, y)
+        
+        # Compute permutation importance
+        perm_importance = permutation_importance(model, X, y, 
+                                                 n_repeats=10, random_state=42)
+        
+        # Create a dataframe to hold feature names and 
+        # their permutation importance scores
+        feature_names = list(range(X.shape[1]))
+        perm_importance_df = pd.DataFrame({
+            'Feature': feature_names,
+            'Importance': perm_importance.importances_mean
+            })
+        
+        # Sort by importance
+        perm_importance_df = perm_importance_df.sort_values(by='Importance', 
+                                                            ascending=False)
+        sorted_features = perm_importance_df['Feature'].tolist()
+        
+        return sorted_features
+
+    Nf, Nr = Xf.shape[1], Xr.shape[1]
+    Xt, yt = np.copy(Xf), yf
+    
+    # Add columns to Xt to increase the number of features to Nr
+    while Xt.shape[1] < Nr:
+        i = np.random.randint(0, Xt.shape[1])
+        Xt = np.concatenate((Xt, Xt[:,i].reshape(-1,1)), axis=1)
+        
+    # Binarize Xt data
+    scaler = MinMaxScaler()
+    Xt = scaler.fit_transform(Xt)  
+    binarizer = Binarizer(threshold=threshold)
+    Xb, yb = binarizer.fit_transform(Xt), yt
+
+    # Rank the features of both Xb and Xr
+    lb = rank_feature(Xb, yb.ravel(), regression=regression)
+    lr = rank_feature(Xr, yr.ravel(), regression=True)
+    if verbose:
+        print('reservoir:', lr)
+        print('problem  :', lb)
+        
+    # One-to-one mapping of ranked features  
+    Xt = np.zeros((Xb.shape[0], Xr.shape[1]))
+    for i in range(len(lr)):
+        Xt[:,lr[i]] = Xb[:,lb[i]]
+            
+    return Xt

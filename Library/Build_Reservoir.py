@@ -112,12 +112,14 @@ def RC_prior(Prior_inputs, parameter, verbose=False):
 def get_reservoir_matrix_bias(reservoir, verbose=False):
     # Get W and bias matrices extracted from the reservoir
     from keras.layers import Dense
+    
     # Extract weights and biases from the pretrained res model
     layers = [layer for layer in reservoir.model.layers if isinstance(layer, Dense)]
     W = np.asarray([layer.get_weights()[0] for layer in layers], dtype=object)
     bias = np.asarray([layer.get_weights()[1] for layer in layers], dtype=object)
     if verbose:
         print(f'Reservoir matrices shapes W {W.shape} bias {bias.shape}')
+        
     return W, bias
     
 def RC_reservoir_matrix_bias(reservoir, inputs, mode, verbose=False):
@@ -156,20 +158,19 @@ def RC_post(Post_inputs, parameter, verbose=False):
     # Post trainable network that takes as input the reservoir output 
     # and produces the problem's output
     from Library.Build_Model import Dense_layers
-    
+
+    Min, Max= np.min(parameter.res.Y), np.max(parameter.res.Y)
     if parameter.precision > 0: # Rounding
         Post_inputs = my_tf_round(Post_inputs, precision=parameter.precision)
     if parameter.post: # Create a post ANN
         Post_outputs = Dense_layers(Post_inputs, parameter.post, verbose=verbose)
-        if verbose: 
-            print(f'Post IO {Post_inputs.shape} {Post_outputs.shape}')
     else: # Apply MinMax scaler on output
-        Min, Max = np.min(parameter.res.Y), np.max(parameter.res.Y)
         Post_outputs = tf.subtract(Post_inputs, Min)
         Post_outputs = Post_outputs / (Max-Min)
-        if verbose: 
-            print(f'Post IO {Post_inputs.shape} {Post_outputs.shape} \
-MinMax-Scaler: ({Min:.4f}, {Max:.4f})')
+    if verbose: 
+        print(f'Post IO Scoring={parameter.scoring_function.__name__} '
+                f'{Post_inputs.shape} {Post_outputs.shape} '
+                f'MinMax-Scaler: ({Min:.4f}, {Max:.4f})')
             
     return Post_outputs
 
@@ -183,11 +184,11 @@ def RC(parameter, verbose=False):
     #   and produces the problem's output
     # - A last layer that concatenates the prior trainable output 
     #   and the post trainable output
-    
     from Library.Build_Model import my_mae, my_mse, CROP
     from Library.Build_Model import my_r2, my_acc, my_binary_crossentropy
     from keras.layers import Input, concatenate
-
+    from sklearn.metrics import r2_score
+    
     # Prior 
     inputs = Input(shape=(parameter.input_dim,))
     Prior_outputs =  RC_prior(inputs, parameter, verbose=verbose)
@@ -204,8 +205,10 @@ def RC(parameter, verbose=False):
     LossX =  loss_reservoir_input(parameter, Res_inputs, Post_outputs)
     outputs = concatenate([Post_outputs, LossX, Prior_outputs], axis=1)
     model = keras.models.Model(inputs, outputs)
-    loss, metrics = (my_mse, [my_r2]) if parameter.regression \
-    else (my_binary_crossentropy, [my_acc])
+    if parameter.scoring_function == r2_score:
+        loss, metrics = my_mse, [my_r2]
+    else:
+        loss, metrics = my_binary_crossentropy, [my_acc]
     opt = tf.keras.optimizers.Adam(learning_rate=parameter.train_rate)
     model.compile(loss=loss, optimizer=opt, metrics=metrics)
     if verbose == 2: print(model.summary())
@@ -213,6 +216,7 @@ def RC(parameter, verbose=False):
 
     return parameter
 
+from sklearn.metrics import r2_score    
 class RC_Model:
     # To save, load & print RC models
     def __init__(self, 
@@ -235,9 +239,10 @@ class RC_Model:
                  mask_prior=False,
                  # for post network in RC model
                  # defaulf is n_hidden_post=-1: no post network
-                 n_hidden_post=-1, hidden_dim_post=-1, activation_post='linear', 
+                 n_hidden_post=1, hidden_dim_post=1, 
+                 activation_post='linear', 
                  # for all trainable models adam default learning rate = 1e-3
-                 regression=True, 
+                 scoring_function=r2_score, 
                  epochs=0, train_rate=1e-3, dropout=0.25, batch_size=5,
                  niter=0, xfold=5, # cross validation 
                  # weight to compute a loss between predicted media 
@@ -256,14 +261,13 @@ class RC_Model:
         self.mode = mode
         self.reservoirfile = reservoirfile
         self.precision = precision
-        scaler = MinMaxScaler()
         self.X = X 
         self.Y = Y
         self.number_constraint = 1
         self.input_dim = X.shape[1]
-        self.output_dim = Y.shape[1]
         self.epochs = epochs
-        self.regression = regression
+        self.scoring_function = scoring_function
+        self.output_dim = Y.shape[1] if scoring_function == r2_score else 1
         self.train_rate = train_rate
         self.dropout = dropout
         self.batch_size = batch_size
@@ -287,11 +291,11 @@ class RC_Model:
 
         # Set prior network
         if n_hidden_prior > -1: 
-            output_dim = self.res.X.shape[0] \
+            output_dim_prior = self.res.X.shape[0] \
             if activation_prior == 'gumbel_softmax' else self.res.input_dim
             self.prior = Neural_Model(model_type = 'ANN_Dense',
                                       input_dim = self.input_dim, 
-                                      output_dim = output_dim,
+                                      output_dim = output_dim_prior,
                                       n_hidden = n_hidden_prior, 
                                       hidden_dim = hidden_dim_prior,
                                       activation = activation_prior)
@@ -319,7 +323,7 @@ class RC_Model:
             print(f'reservoir S, Pin, Pout matrices {self.S.shape} {self.Pin.shape} {self.Pout.shape}')
         if self.epochs > 0:
             print(f'RC training epochs: {self.epochs}')
-            print(f'RC training regression: {self.regression}')
+            print(f'RC training scoring: {self.scoring_function.__name__}')
             print(f'RC training learn rate: {self.train_rate}')
             print(f'RC training dropout: {self.dropout}')
             print(f'RC training batch size: {self.batch_size}')
@@ -351,35 +355,34 @@ def identical_media(X_true, X_pred):
     
 def RC_run(reservoirfile, X, Y, 
            mode='AMN_objective',
-           regression=True, 
+           scoring_function=r2_score,
            n_hidden_prior=1, hidden_dim_prior=28, 
-           n_hidden_post=-1, hidden_dim_post=0, 
+           n_hidden_post=1, hidden_dim_post=1, 
            activation_prior='sharp_sigmoid',
-           precision=0, train_rate=1.0e-3, xfold=5, epochs=100, repeat=1,
+           precision=0, train_rate=1.0e-3, xfold=1, epochs=100, repeat=1,
            temperature=0, failure=0, weight_pred_true_media=0, 
            seed=1, verbose=False):
     # Train and cross validate with a reservoir
     # cf. class RC_Model for parameter definitions
-    
     from Library.Build_Model import train_evaluate_model, evaluate_model, model_input
-    from sklearn.metrics import r2_score, accuracy_score
     
     Maxloop, R2, Q2, PRED, Q2best, mbest = repeat, [], [], [], -1e6, 0
     batch_size = 100 if X.shape[0] > 1000 else 10
-
+    activation_post = 'relu' if scoring_function == r2_score else 'sigmoid'
+    
     for Nloop in range(Maxloop):
         # Create model
         model = RC_Model(mode=mode,
                          reservoirfile=reservoirfile,
                          X=X, Y=Y,
-                         regression=regression,
+                         scoring_function=scoring_function,
                          precision=precision,
                          n_hidden_prior=n_hidden_prior,                  
                          n_hidden_post=n_hidden_post,
                          hidden_dim_prior=hidden_dim_prior, 
                          hidden_dim_post=hidden_dim_post, 
                          activation_prior=activation_prior,
-                         activation_post='relu',
+                         activation_post=activation_post,
                          batch_size=batch_size,
                          epochs=epochs, 
                          train_rate=train_rate, 
@@ -394,13 +397,18 @@ def RC_run(reservoirfile, X, Y,
                                                          failure=failure,
                                                          verbose=verbose)
         R2.append(stats.train_objective[0])
-        r2 = r2_score(Y, pred[:, 0], multioutput='variance_weighted')
+        if scoring_function == r2_score:
+            r2 = scoring_function(Y, pred[:, 0], multioutput='variance_weighted') 
+        else:
+            r2 = scoring_function(Y, pred[:, 0].round())
         Xe = model.res.X
         L = model.number_constraint+1
         Xr = np.round(pred[:,L:L+Xe.shape[1]], decimals=0)
         m = identical_media(Xr, Xe)
         if verbose:
-            print(f'iteration: {Nloop} q2: {r2:.4f} identical predicted vs. measured media: {m} / {Xr.shape[0]}')
+            s = 'q2' if scoring_function == r2_score else 'acc'
+            print(f'iteration: {Nloop} {scoring_function.__name__} {s}: {r2:.4f} '
+                  f'identical predicted vs. measured media: {m} / {Xr.shape[0]}')
         if r2 > Q2best:
             Q2best, mbest, Nbest, modelbest, statsbest = r2, m/Xr.shape[0], Nloop, model, stats
         Q2.append(r2)
@@ -412,18 +420,24 @@ def RC_run(reservoirfile, X, Y,
     R2_avr, R2_dev =  np.mean(R2), np.std(R2)
     Q2_avr, Q2_dev =  np.mean(Q2), np.std(Q2)
     if verbose:
-        r2 = r2_score(Y, pred[:, 0], multioutput='variance_weighted')
+        if scoring_function == r2_score:
+            r2 = scoring_function(Y, pred[:, 0], multioutput='variance_weighted') 
+        else:
+            r2 = scoring_function(Y, pred[:, 0].round())
         Loss_X = pred[:, 1]
         Xe = model.res.X
         L = model.number_constraint+1
         Xr = np.round(pred[:,L:L+Xe.shape[1]], decimals=0)
         m = identical_media(Xr, Xe)
-        print(f'Average R2 {R2_avr:.4f}±{R2_dev:.4f}')
-        print(f'Average Q2 {Q2_avr:.4f}±{Q2_dev:.4f}')
-        print(f'Best model Q2 {r2:.4f} identical predicted vs. measured media: {mbest*Xr.shape[0]} / {Xr.shape[0]}')
+        s = 'R2' if scoring_function == r2_score else 'Acc-train'
+        print(f'Average {s} ({scoring_function.__name__}) {R2_avr:.4f}±{R2_dev:.4f}')
+        s = 'Q2' if scoring_function == r2_score else 'Acc-test'
+        print(f'Average {s} ({scoring_function.__name__}) {Q2_avr:.4f}±{Q2_dev:.4f}')
+        print(f'Best model ({scoring_function.__name__}) {s} {r2:.4f} '
+              f'identical predicted vs. measured media: {mbest*Xr.shape[0]}/{Xr.shape[0]}')
         print(f'Loss X average {np.mean(Loss_X):.4f} max {np.max(Loss_X):.4f}')
 
-    return model, pred, R2_avr, R2_dev, Q2_avr, Q2_dev, mbest
+    return model, pred, R2_avr, R2_dev, Q2_avr, Q2_dev, Q2best, mbest
 
 def RC_write_multiple(reservoirfile, resultfile, 
                       model, y_true, pred,  
@@ -432,12 +446,12 @@ def RC_write_multiple(reservoirfile, resultfile,
                       precision_Y=0, # Rounding when > 0
                       verbose=True):  
     # Save results with multiple reservoir
-    
+    from Library.Utilities import write_csv
     from Library.Build_Model import Neural_Model
     from Library.Build_Model import train_evaluate_model, evaluate_model, model_input
     from Library.Build_Dataset import get_minmed_varmed_ko
-    from sklearn.metrics import r2_score, accuracy_score
-
+    from sklearn.metrics import r2_score
+    
     if multiple < 1:
         return
     medium = model.res.medium
