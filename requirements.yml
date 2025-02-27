@@ -1,0 +1,20 @@
+name: reservoir  
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8  
+  - numpy
+  - pandas
+  - matplotlib
+  - scikit-learn
+  - xgboost 
+  - keras
+  - cobra
+  - pydantic==1.10.11
+  - typing_extensions==4.5.0
+  - pip
+  - ipykernel
+  - pip:
+    - tensorflow==2.13.0
+    - tensorflow-probability 
