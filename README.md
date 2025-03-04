@@ -1,45 +1,41 @@
-# Supporting content for the reservoir Computing paper with Bacteria paper
+# Supporting content for the Reservoir Computing paper with Bacteria paper
 
 [![Github Version](https://img.shields.io/github/v/release/brsynth/molecule-signature-paper?display_name=tag&sort=semver&logo=github)](version)
 [![Github Licence](https://img.shields.io/github/license/brsynth/molecule-signature-paper?logo=github)](LICENSE.md)
 
-This repository contains code to support the Molecule Signature publication. See citation for details.
+This repository contains code to support the Computing paper with Bacteria publication. See citation for details.
 
 ## Table of Contents
 - [1. Repository structure](#1-repository-structure)
-  - [1.1. Datasets](#11-datasets)
-  - [1.2. Supporting Notebooks](#12-supporting-notebooks)
-  - [1.3. Source code](#13-source-code)
 - [2. Installation](#2-installation)
 - [3. Usage](#3-usage)
-  - [3.1. Preparing datasets](#31-preparing-datasets)
-  - [3.2 Deterministic enumeration](#32-deterministic-enumeration)
-  - [3.3. Train generative models](#33-train-generative-models)
-  - [3.4. Predict molecules with generative models](#34-predict-molecules-with-generative-models)
 - [4. Citation](#4-citation)
 
 ## 1. Repository structure
 
 ```text
 .
-├── data       < placeholder for data files >
+├── Dataset_input       < placeholder for data files >
 │   └── ..
-├── notebooks  < supporting jupyter notebooks >
-│   ├── 1.enumeration_create_alphabets.ipynb
-│   ├── 2.enumeration_results.ipynb
-│   ├── 3.analysis_alphabets.ipynb
-│   ├── 4.generation_evaluation.ipynb
-│   ├── 5.generation_recovery.ipynb
-│   └── handy.py
-└── src        < source code for data preparation and modeling >
-    └── paper
-        ├── dataset
-        └── learning
+├── Reservoir       < trained reservoir model>
+│   └── ..
+├── Result     
+│   └── ..
+├── Library       < supporting code for notebook >
+│   └── ..
+├── 1.Dataset-species.ipynb
+├── 2.Fixed-prior.ipynb
+├── 3.ML-covid.ipynb
+├── 4.Reservoir-covid.ipynb
+├── 5.Reservoir-species.ipynb
+├── README.md
+└── requirements.yaml
+
 
 ```
 ## 2. Installation
 
-The following steps will set up a `signature-paper` conda environment.
+The following steps will set up a `reservoir` conda environment.
 
 0. **Install Conda:**
 
@@ -58,14 +54,13 @@ The following steps will set up a `signature-paper` conda environment.
 1. **Install dependencies:**
 
     ```bash
-    conda env create -f recipes/environment.yaml
-    conda activate signature-paper
-    pip install --no-deps -e .
+    conda env create -f requirements.yaml
+    conda activate reservoir
     ```
 
 2. **Download data:**
 
-    Precomputed alphabets, trained generative models and most important datasets are available as a Zenodo archive: <https://doi.org/10.5281/zenodo.5528831>. Extract the files and place them in the `data` directory.
+    Trained reservoir models and most important datasets are available as a Zenodo archive: <https://doi.org/10.5281/zenodo.14961168>. Extract the files and place them in the `Dataset-input`, `Reservoir`, `Result` directory.
 ## 3. Usage
 ## 4. Citation
    
