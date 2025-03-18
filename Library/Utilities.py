@@ -240,6 +240,7 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
 
     regression = True if scoring_function==r2_score else False
     F = np.asarray(F)
+    
     if selection > 0:
         
         # First reduce: Use RandomForest to rank features by importance
