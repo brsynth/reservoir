@@ -21,6 +21,7 @@ import json
 import copy
 import pickle
 import sklearn
+import xgboost
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # no warnings
 import tensorflow as tf
 import keras
