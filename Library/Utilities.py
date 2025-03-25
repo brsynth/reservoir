@@ -111,7 +111,8 @@ def GP(X, y, regression=False):
     else:
         kernel = 1.0 * RBF(1.0)
         gp_model = GaussianProcessClassifier(kernel=kernel,
-                                    random_state=0).fit(X, y)
+                                             # optimizer=None, 
+                                             random_state=0).fit(X, y)
     return gp_model
 
 def XGB(X, y, regression=False):
