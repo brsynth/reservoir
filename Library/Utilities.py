@@ -284,7 +284,7 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
             X, F = X_best, F_best
             if score_best > SCORE_BEST:
                 SCORE_BEST, X_BEST, F_BEST = \
-                score_best, X_best, F_best        
+                score_best, X_best, F_best  
         X, F = X_BEST, F_BEST
         
     # Compute final score
@@ -301,12 +301,11 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
     y_pred = np.asarray(list(y_pred.values()))
     y_pred_avr = np.mean(y_pred, axis=0)
     y_pred_dev = np.std(y_pred, axis=0)
-    if verbose:
+    if verbose > 1:
         print('y_true y_pred_avr±y_pred_dev')
         for i in range(y.shape[0]):
-            print(f'{y[i]} {y_pred_avr[i]}±{y_pred_dev[i]}')
-            
-    return score_avr, score_dev, np.asarray(F)
+            print(f'{y[i]} {y_pred_avr[i]}±{y_pred_dev[i]}')        
+    return score_avr, score_dev, F
 
 
 ###############################################################################
