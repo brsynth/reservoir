@@ -75,7 +75,7 @@ def MaxScaler(data, Max_Scaler = 1.0e12):
 # Simple sklearn models 
 ###############################################################################
 
-def bayes_classifier(X, y, regression=False):
+def bayes_classifier(X, y, regression=False, random_state=0):
     # multiclass classification with naive_bayes
     if regression:
         sys.exit('No regression with bayes_classifier') 
@@ -83,7 +83,7 @@ def bayes_classifier(X, y, regression=False):
     gnb = GaussianNB().fit(X, y)
     return gnb
 
-def svm_classifier(X, y, regression=False):
+def svm_classifier(X, y, regression=False, random_state=0):
     # multiclass classification with svm
     if regression:
         sys.exit('No regression with svm_classifier') 
@@ -91,7 +91,7 @@ def svm_classifier(X, y, regression=False):
     svm_model_linear = SVC(kernel = 'linear', C = 1).fit(X, y) 
     return svm_model_linear
     
-def decision_tree_classifier(X, y, regression=False):
+def decision_tree_classifier(X, y, regression=False, random_state=0):
     # multiclass classification with DescisionTreeClassifier 
     if regression:
         sys.exit('No regression with decision_tree_classifier') 
@@ -99,7 +99,7 @@ def decision_tree_classifier(X, y, regression=False):
     dtree_model = DecisionTreeClassifier(max_depth = 10).fit(X, y) 
     return dtree_model
 
-def GP(X, y, regression=False):
+def GP(X, y, regression=False, random_state=0):
     # Regression or classification with GaussianProcess
     from sklearn.gaussian_process import GaussianProcessRegressor
     from sklearn.gaussian_process import GaussianProcessClassifier
@@ -115,17 +115,23 @@ def GP(X, y, regression=False):
                                              random_state=0).fit(X, y)
     return gp_model
 
-def XGB(X, y, regression=False):
+def XGB(X, y, regression=False, random_state=0):
     # Regression or classification with a XGBoost
     from xgboost import XGBRegressor
     from xgboost import XGBClassifier
+    subsample = 0.999 if random_state else 1.0
+    colsample_bytree = 0.999 if random_state else 1.0
     if regression:
-        xgb_model = XGBRegressor().fit(X, y)
+        xgb_model = XGBRegressor(subsample=subsample, 
+                                 colsample_bytree=colsample_bytree,
+                                 random_state=random_state).fit(X, y)
     else:
-        xgb_model = XGBClassifier().fit(X, y)
+        xgb_model = XGBClassifier(subsample=subsample, 
+                                 colsample_bytree=colsample_bytree,
+                                 random_state=random_state).fit(X, y)
     return xgb_model
 
-def MLP(X, y, regression=False):
+def MLP(X, y, regression=False, random_state=0):
     # Regression or classification with Multilinear perceptron
     from sklearn.neural_network import MLPClassifier, MLPRegressor
     hidden_size = 16 if X.shape[1] == 2 else 2*int(X.shape[1]) 
@@ -144,7 +150,7 @@ def MLP(X, y, regression=False):
     model.fit(X, y.flatten())
     return model
 
-def Linear(X, y, regression=False):
+def Linear(X, y, regression=False, random_state=0):
     # Regression with LinearRegression
     from sklearn.linear_model import LinearRegression
     if regression == False:
@@ -216,10 +222,13 @@ def LXO(X, y,
         y_pred = model.predict(X)
         y_pred = y_pred if regression else le.inverse_transform(y_pred.ravel())
     else:
-        kfold = KFold(n_splits=xfold, shuffle=True, random_state=seed)
+        kfold, k = KFold(n_splits=xfold, shuffle=True, random_state=seed), 0
         for train, test in kfold.split(X, y):
             y_train = y[train] if regression else le.fit_transform(y[train])
-            model = learner(X[train], y_train, regression=regression)
+            k = k+1 if xfold == X.shape[0] else 0 # set random seed for LOO
+            model = learner(X[train], y_train, 
+                            regression=regression, 
+                            random_state=k)
             y_pred_test = model.predict(X[test])
             y_pred_test = y_pred_test.ravel() if regression \
             else le.inverse_transform(y_pred_test.ravel())
@@ -295,7 +304,6 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
                         seed=i, verbose=verbose)
         score = scoring_function(y, y_pred[i])
         scores.append(score)
-        
     score_avr = np.mean(np.asarray(scores))
     score_dev = np.std(np.asarray(scores))
     y_pred = np.asarray(list(y_pred.values()))
