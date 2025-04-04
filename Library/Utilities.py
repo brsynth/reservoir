@@ -252,21 +252,21 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
     F = np.asarray(F)
     
     if selection > 0:
-        """
-        # First reduce: Use RandomForest to rank features by importance
-        if regression:
-            rf = RandomForestRegressor(random_state=42)
-        else:
-            rf = RandomForestClassifier(random_state=42)
-        rf.fit(X, y)
-        importances = rf.feature_importances_
+        if X.shape[0] > 1000:
+            # First reduce: Use RandomForest to rank features by importance
+            if regression:
+                rf = RandomForestRegressor(random_state=42)
+            else:
+                rf = RandomForestClassifier(random_state=42)
+            rf.fit(X, y)
+            importances = rf.feature_importances_
     
-        # Select the top features based on importance 
-        # Select top 10*selection features
-        top_features_idx = np.argsort(importances)[-10*selection:]  
-        X = X[:, top_features_idx]
-        F = F[top_features_idx]
-        """
+            # Select the top features based on importance 
+            # Select top 10*selection features
+            top_features_idx = np.argsort(importances)[-10*selection:]  
+            X = X[:, top_features_idx]
+            F = F[top_features_idx]
+
         # Remove feature one at a time
         # Keep best score
         SCORE_BEST, F_BEST, scores = float('-inf'), F, []
