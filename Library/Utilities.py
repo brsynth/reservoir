@@ -271,7 +271,7 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
         # Keep best score
         SCORE_BEST, F_BEST, scores = float('-inf'), F, []
         while X.shape[1] > selection:
-            score_best = float('-inf')
+            score_best, score_dev = float('-inf'), 0
             for I in range(X.shape[1]):
                 XX = np.delete(X, I, 1)
                 FF = np.delete(F, I, 0)
@@ -291,7 +291,7 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
                 print(f'Size: {X_best.shape[1]} Remove: {F[I_best]} '
                       f'Score: {score_best:.3f}±{score_dev:.3f}')
             X, F = X_best, F_best
-            if score_best > SCORE_BEST:
+            if score_best >= SCORE_BEST:
                 SCORE_BEST, X_BEST, F_BEST = \
                 score_best, X_best, F_best  
         X, F = X_BEST, F_BEST
