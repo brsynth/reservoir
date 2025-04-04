@@ -261,9 +261,8 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
             rf.fit(X, y)
             importances = rf.feature_importances_
     
-            # Select the top features based on importance 
-            # Select top 10*selection features
-            top_features_idx = np.argsort(importances)[-10*selection:]  
+            # Select the top 100 features based on importance 
+            top_features_idx = np.argsort(importances)[-100:]  
             X = X[:, top_features_idx]
             F = F[top_features_idx]
 
@@ -298,7 +297,7 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
         
     # Compute final score
     scores, y_pred = [], {}
-    for i in range(10*niter):
+    for i in range(niter):
         y_pred[i] = LXO(X, y.ravel(), learner=learner,
                         xfold=xfold, scoring_function=scoring_function, 
                         seed=i, verbose=verbose)
@@ -314,6 +313,69 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
         for i in range(y.shape[0]):
             print(f'{y[i]} {y_pred_avr[i]}±{y_pred_dev[i]}')        
     return score_avr, score_dev, F
+
+def plot_ROC(X, y, learner, xfold=20, niter=5, verbose=False):
+    # Plot ROC curve and compute AUC using cross-validation, then save the figure as ROC.jpeg.
+
+    import matplotlib.pyplot as plt
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.metrics import roc_curve, roc_auc_score
+
+    all_y_true = []
+    all_y_scores = []
+    
+    for iter_idx in range(niter):
+        if verbose:
+            print(f"Iteration {iter_idx+1}/{niter}")
+        skf = StratifiedKFold(n_splits=xfold, shuffle=True, random_state=iter_idx)
+        for train_index, test_index in skf.split(X, y):
+            X_train, X_test = X[train_index], X[test_index]
+            y_train, y_test = y[train_index], y[test_index]
+            
+            # Train the classifier with regression set to False.
+            model = learner(X_train, y_train, regression=False, random_state=iter_idx)
+            
+            # Get prediction scores: use predict_proba if available; otherwise, use decision_function.
+            if hasattr(model, "predict_proba"):
+                scores = model.predict_proba(X_test)[:, 1]
+            elif hasattr(model, "decision_function"):
+                scores = model.decision_function(X_test)
+            else:
+                raise AttributeError("The provided learner does not have predict_proba or decision_function method.")
+            
+            all_y_true.extend(y_test)
+            all_y_scores.extend(scores)
+    
+    all_y_true = np.array(all_y_true)
+    all_y_scores = np.array(all_y_scores)
+    
+    # Compute the ROC curve and AUC.
+    fpr, tpr, _ = roc_curve(all_y_true, all_y_scores)
+    auc_val = roc_auc_score(all_y_true, all_y_scores)
+    
+    # Create a square figure with a large font size.
+    plt.figure(figsize=(10, 10))
+    plt.plot(fpr, tpr, lw=2, color='black', label=f'ROC curve (AUC = {auc_val:.3f})')
+    plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray', label='Chance')
+    plt.xlim([0, 1])
+    plt.ylim([0, 1.05])
+    plt.axis('square')
+    
+    # Set tick label sizes to large.
+    plt.tick_params(axis='both', which='major', labelsize=16)
+    
+    # Add title, labels, and legend only if verbose is True.
+    if verbose:
+        plt.xlabel('False Positive Rate', fontsize=16)
+        plt.ylabel('True Positive Rate', fontsize=16)
+        plt.title('Receiver Operating Characteristic', fontsize=16)
+        plt.legend(loc="lower right", fontsize=16, frameon=True)
+    
+    # Save the figure and show it.
+    plt.savefig("ROC.jpeg", format="jpeg")
+    plt.show()
+    
+    return auc_val
 
 
 ###############################################################################
