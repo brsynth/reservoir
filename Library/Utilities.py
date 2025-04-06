@@ -53,12 +53,14 @@ def read_XY(filename, nY=1, scaling=''):
         Y = scalerY.fit_transform(Y)
     return H, X, Y
 
-def write_XY(filename, H, X, Y):
+def write_XY(filename, H, X, Y, scaling=''):
     # Write file first scaling back
     # Function read_training_data is defined in module (1)
-    X = scalerX.inverse_transform(X)
-    Y = scalerY.inverse_transform(X)
-    D = np.concatenate(X, Y, axis=1)
+    if scaling == 'X' or scaling == 'XY':
+        X = scalerX.inverse_transform(X)
+    if scaling == 'Y' or scaling == 'XY':
+        Y = scalerY.inverse_transform(Y)
+    D = np.concatenate((X, Y.reshape(-1, 1)), axis=1)
     write_csv(filename, H, D)
 
 def MaxScaler(data, Max_Scaler = 1.0e12):
@@ -268,7 +270,7 @@ def LeaveXout(X, y, F, learner=Linear, scoring_function=r2_score,
 
         # Remove feature one at a time
         # Keep best score
-        SCORE_BEST, F_BEST, scores = float('-inf'), F, []
+        SCORE_BEST, X_BEST, F_BEST, scores = float('-inf'), X, F, []
         while X.shape[1] > selection:
             score_best, score_dev = float('-inf'), 0
             for I in range(X.shape[1]):
@@ -321,6 +323,14 @@ def plot_ROC(X, y, learner, xfold=20, niter=5, verbose=False):
     from sklearn.model_selection import StratifiedKFold
     from sklearn.metrics import roc_curve, roc_auc_score
 
+    # Adjust xfold if it exceeds the minimum number of samples in any class.
+    unique, counts = np.unique(y, return_counts=True)
+    min_class_count = np.min(counts)
+    if xfold > min_class_count:
+        if verbose:
+            print(f"Warning: xfold ({xfold}) is greater than the minimum number of samples in a class ({min_class_count}). Adjusting xfold to {min_class_count}.")
+        xfold = min_class_count
+        
     all_y_true = []
     all_y_scores = []
     
@@ -355,23 +365,21 @@ def plot_ROC(X, y, learner, xfold=20, niter=5, verbose=False):
     
     # Create a square figure with a large font size.
     plt.figure(figsize=(10, 10))
-    plt.plot(fpr, tpr, lw=2, color='black', label=f'ROC curve (AUC = {auc_val:.3f})')
+    plt.plot(fpr, tpr, lw=4, color='black', label=f'ROC curve (AUC = {auc_val:.3f})')
     plt.plot([0, 1], [0, 1], lw=2, linestyle='--', color='gray', label='Chance')
     plt.xlim([0, 1])
     plt.ylim([0, 1.05])
     plt.axis('square')
-    
-    # Set tick label sizes to large.
-    plt.tick_params(axis='both', which='major', labelsize=16)
+    fontsize = 40
+    plt.tick_params(axis='both', which='major', labelsize=fontsize)
     
     # Add title, labels, and legend only if verbose is True.
     if verbose:
-        plt.xlabel('False Positive Rate', fontsize=16)
-        plt.ylabel('True Positive Rate', fontsize=16)
-        plt.title('Receiver Operating Characteristic', fontsize=16)
-        plt.legend(loc="lower right", fontsize=16, frameon=True)
+        plt.xlabel('False Positive Rate', fontsize=fontsize)
+        plt.ylabel('True Positive Rate', fontsize=fontsize)
+        plt.title('Receiver Operating Characteristic', fontsize=fontsize)
+        plt.legend(loc="lower right", fontsize=fontsize, frameon=True)
     
-    # Save the figure and show it.
     plt.savefig("ROC.jpeg", format="jpeg")
     plt.show()
     
