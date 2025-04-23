@@ -17,11 +17,12 @@ require(mgcv)
 histidine <- read_csv("Dataset_input/MG1655/MG1655all.csv")
 unique(histidine$Case)
 histidine <- histidine %>% 
-  filter(!Case %in% c("M")) %>% # remove negative control
+#  filter(!Case %in% c("N")) %>% # remove negative control
+  mutate(Case = ifelse(Case %in% c("M", "S"), "P", as.character(Case)))%>%
   group_by(Time, Individual, Case) %>%
   summarise(OD = mean(OD, na.rm = TRUE), .groups = "drop")
 #histidine <- histidine %>% filter(Mutant == "Deoxycytidine")
-#histidine = histidine %>% filter(Time > 0)
+histidine = histidine %>% filter(Time > 2)
 # Check the structure of the data
 str(histidine)
 unique(histidine$Individual)
@@ -51,13 +52,35 @@ anova(model1$lme,model2$lme)
 summary(model2$gam)
 ```
 
+
 ```{r}
 # plot the fitted model
 
 fitted_vals <- fitted(model2$gam)
 
 
-fig <- ggplot(histidine, aes(Time, OD, shape = Case)) +
+fig1 <- ggplot(histidine, aes(Time, OD, shape = Case)) +
+  stat_summary(fun.data = mean_se, geom = "pointrange") +
+  stat_summary(aes(y = fitted_vals, linetype = Case, color = Case),
+               fun = mean, geom = "line", size = 1.5) +
+  scale_x_continuous(breaks = 1:20) +
+  scale_color_manual(values = c("red", "blue")) +
+  labs(
+    x = "Time (hours)",
+    y = "OD Value",
+    title = "Negative vs Positive fits"
+  ) +
+  theme_minimal()
+print(fig1)
+ggsave("Dataset_input/MG1655/NP.jpeg", plot = fig1, width = 8, height = 3, dpi = 900)
+```
+
+
+```{r}
+fitted_vals <- fitted(model2$gam)
+
+
+fig2 <- ggplot(histidine, aes(Time, OD, shape = Case)) +
   stat_summary(fun.data = mean_se, geom = "pointrange") +
   stat_summary(aes(y = fitted_vals, linetype = Case, color = Case),
                fun = mean, geom = "line", size = 1.5) +
@@ -69,7 +92,57 @@ fig <- ggplot(histidine, aes(Time, OD, shape = Case)) +
     title = "GAMM Model Fit"
   ) +
   theme_minimal()
+print(fig2)
+```
+
+
+```{r}
+library(patchwork)
+combined_plot <- fig1 + fig2  # This arranges them in a row
+print(combined_plot)
+```
+
+```{r}
+# Add fitted values and model labels
+histidine$fitted_gamm <- fitted(model2$gam)
+histidine$fitted_sigmoid <- fitted(model_sigmoid_simple)
+
+# Create long-format data frame for fitted lines
+library(dplyr)
+library(tidyr)
+
+fitted_lines <- histidine %>%
+  select(Time, Individual, fitted_gamm, fitted_sigmoid) %>%
+  pivot_longer(cols = starts_with("fitted_"),
+               names_to = "Model",
+               values_to = "Fitted") %>%
+  mutate(Model = recode(Model,
+                        "fitted_gamm" = "GAMM",
+                        "fitted_sigmoid" = "Sigmoid"))
+
+# Combine with original data for plotting
+fig <- ggplot() +
+  stat_summary(data = histidine,
+               aes(Time, OD, shape = Case),
+               fun.data = mean_se, geom = "pointrange") +
+  geom_line(data = fitted_lines,
+            aes(x = Time, y = Fitted, color = Model, linetype = Model, group = Model),
+            stat = "summary", fun = mean, size = 1.5) +
+  scale_color_manual(values = c("GAMM" = "red", "Sigmoid" = "blue")) +
+  scale_linetype_manual(values = c("GAMM" = "solid", "Sigmoid" = "dashed")) +
+  scale_x_continuous(breaks = 1:20) +
+  labs(
+    x = "Time (hours)",
+    y = "OD Value",
+    title = "GAMM vs Sigmoid Model Fit",
+    color = "Model",
+    linetype = "Model"
+  ) +
+  theme_minimal()
+
+
 print(fig)
+
 ```
 
 
