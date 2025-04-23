@@ -5,6 +5,10 @@
 # Updates: 24/11/2023
 ###############################################################################
 
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
+from sklearn.metrics import silhouette_score
+
 from Library.Import import *
 
 ###############################################################################
@@ -386,3 +390,121 @@ def map_and_binarize_feature(Xf, yf, Xr, yr, threshold,
         Xt[:,lr[i]] = Xb[:,lb[i]]
             
     return Xt
+
+###############################################################################
+# Clustering functions
+###############################################################################
+
+def compute_shannon_entropy(cluster_counts):
+    # Computes the Shannon entropy of the cluster distribution.
+    # Parameters:
+    # cluster_counts (pd.Series): Counts of elements in each cluster.
+    # Returns:
+    # float: Shannon entropy of the distribution.
+
+    total_elements = cluster_counts.sum()
+    probabilities = cluster_counts / total_elements
+    entropy = -np.sum(probabilities * np.log2(probabilities))
+    return entropy
+
+def get_clusters(Y, distance_threshold, plot_dend=False):
+    # Clusters the Y values based on a distance threshold after dimensionality reduction and log transformation.
+    # Parameters:
+    # Y (np.array): Input array of shape (n_samples, n_features).
+    # distance_threshold (float): Distance threshold for hierarchical clustering.
+    # plot_dend (bool): Whether to display the dendrogram. Works only if data not too big.
+    # Returns:
+    # tuple: (size, cluster labels, distance threshold, number of clusters, Shannon entropy)
+
+    if Y.shape[1] > 1:
+        # Reduce dimensionality by averaging non-zero elements across features
+        size = np.mean(np.count_nonzero(Y, axis=1))
+        Y_reduced = np.sum(Y, axis=1).reshape(-1, 1) / size
+    else:
+        size = Y.shape[1]
+        Y_reduced = Y
+
+    # Log transformation of data and distance threshold
+    Y_reduced = np.log1p(Y_reduced)
+    distance_threshold_log = np.log1p(distance_threshold)
+
+    # Hierarchical clustering
+    Z = linkage(Y_reduced, method="complete")
+    clusters = fcluster(Z, distance_threshold_log, criterion="distance")
+
+    # Count clusters
+    cluster_counts = pd.Series(clusters).value_counts().sort_index()
+    nb_clusters = cluster_counts.size
+
+    # Optional dendrogram plot
+    if plot_dend:
+        plt.figure(figsize=(12, 8))
+        dendrogram(Z, truncate_mode="lastp", p=100, show_contracted=True)
+        plt.tight_layout()
+        plt.show()
+
+    # Entropy and silhouette score
+    entropy = compute_shannon_entropy(cluster_counts)
+    silhouette = silhouette_score(Y_reduced, clusters)
+
+    #print(f"Nb clusters: {nb_clusters}, silhouette index: {silhouette:.2f}")
+    return size, clusters, distance_threshold, nb_clusters, entropy
+
+def plot_clusters(Y, clusters, file_path, distance_threshold, adjusted_threshold, color):
+    # Plots a bar plot of the clustered Y values.
+    # Parameters:
+    # Y (np.array): Array of Y values.
+    # clusters (np.array): Cluster labels for each point in Y.
+    # file_path (str): Path to the file containing Y values.
+    # distance_threshold (float): The distance threshold for clustering.
+    # adjusted_threshold (float): The adjusted distance threshold for clustering.
+    # color (str): Color for the bars in the plot.
+    
+    print(f"File: {file_path} size: {Y.shape}")
+    if Y.shape[1] > 1:
+        print(f"Threshold (Precision): {distance_threshold:.2f} Adjusted Threshold: {adjusted_threshold:.2f}")
+    else:
+        print(f"Threshold (Precision): {distance_threshold:.2f}")
+    
+    df = pd.DataFrame(Y)
+    df['Cluster'] = clusters
+    cluster_counts = df['Cluster'].value_counts().sort_index()
+
+    num_clusters = len(cluster_counts)
+    entropy = compute_shannon_entropy(cluster_counts)
+
+    print(f"Number of clusters: {num_clusters}")
+    print(f"Shannon entropy: {entropy:.4f}")
+
+    # For each cluster, compute the mean vector
+    cluster_means = df.groupby('Cluster').mean()
+
+    bins = cluster_means.index
+    dis = cluster_counts
+
+    plt.figure(figsize=(12, 8))
+    if Y.shape[1] == 1:
+        tick_labels = [f'{mean[0]:.2f}' for mean in cluster_means.values]
+    else:
+        tick_labels = [f'Cluster {i}' for i in bins]
+    
+    plt.bar(bins, dis, color=color, tick_label=tick_labels)
+    plt.xlabel('Average Y values for clusters' if Y.shape[1] == 1 else 'Clusters')
+    plt.ylabel('Number of elements in cluster')
+    plt.title(f"Cluster {file_path}")
+    
+    # Adjust y-axis to log scale
+    plt.yscale('log')
+    
+    # Adjust tick labels to avoid overlap
+    plt.xticks(rotation=90)
+    
+    # Limit the number of x-tick labels displayed
+    if num_clusters > 20:
+        step = max(1, num_clusters // 20)
+        visible_ticks = np.arange(0, num_clusters, step)
+        plt.gca().set_xticks(visible_ticks)
+        plt.gca().set_xticklabels([tick_labels[i] for i in visible_ticks])
+    
+    plt.tight_layout()
+    plt.show()
