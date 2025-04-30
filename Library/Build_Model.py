@@ -16,31 +16,12 @@ from Library.Import import *
 # Custom functions for tf/keras 
 ###############################################################################
 
-from tensorflow.keras.layers import Lambda
-from tensorflow.keras.models import load_model
-
-# Save the original from_config method.
-_original_from_config = Lambda.from_config
-
-def patched_from_config(cls, config, custom_objects=None, safe_mode=False):
-    if "function_type" not in config:
-        config["function_type"] = "function"  # Use a default value.
-    # Try calling with safe_mode; if that fails, call without it.
-    try:
-        return _original_from_config(config, custom_objects=custom_objects, safe_mode=safe_mode)
-    except TypeError:
-        return _original_from_config(config, custom_objects=custom_objects)
-
-# Patch the Lambda class.
-Lambda.from_config = classmethod(patched_from_config)
-
 def sharp_sigmoid(x):
     # Custom activation function
     return K.sigmoid(10000.0 * x)
 from tensorflow.keras.utils import get_custom_objects, CustomObjectScope
 from tensorflow.keras.layers import Activation, Lambda
 get_custom_objects().update({'sharp_sigmoid': Activation(sharp_sigmoid)})
-get_custom_objects()['TFOpLambda'] = Lambda
 
 def my_mse(y_true, y_pred):
     # Custom loss function
@@ -795,12 +776,8 @@ class Neural_Model:
         self.get_parameter(verbose=verbose)
         self.Y = self.Y[:,:self.output_dim]
         # Then load model
-        self.model = load_model(filemodel)
-        """
-        self.model = load_model(filemodel, # !!!
-                                custom_objects={'TFOpLambda': CustomLambda}, 
-                                compile=False)
-        """
+        self.model = load_model(filemodel, compile=False)
+
     def printout(self, filename=''):
         if filename != '':
             sys.stdout = open(filename, 'a')
