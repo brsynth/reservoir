@@ -8,8 +8,7 @@ This repository contains code to support the Computing paper with Bacteria publi
 ## Table of Contents
 - [1. Repository structure](#1-repository-structure)
 - [2. Installation](#2-installation)
-- [3. Usage](#3-usage)
-- [4. Citation](#4-citation)
+- [3. Citation](#3-citation)
 
 ## 1. Repository structure
 
@@ -37,7 +36,7 @@ This repository contains code to support the Computing paper with Bacteria publi
 
 The following steps will set up a `reservoir` conda environment.
 
-0. **Install Conda:**
+0. **Install Conda**
 
     The conda package manager is required. If you do not have it installed, you
     can download it from [here](https://docs.conda.io/en/latest/miniconda.html).
@@ -51,14 +50,40 @@ The following steps will set up a `reservoir` conda environment.
 
     Follow the prompts on the installer to complete the installation.
 
-1. **Install dependencies:**
+1. **Install dependencies**
+
+    1.1. **Windows & Linux**
 
     ```bash
-    conda env create -f requirements.yaml
+    conda env create -f requirements.yml
     conda activate reservoir
     ```
 
-2. **Download data:**
+    1.2. **macOS (Intel processors)**
+
+    ```bash
+    conda env create -f requirements.yml
+    conda activate reservoir
+    pip install tensorflow-macos tensorflow-metal
+    ```
+
+    1.3. **macOS (Apple Silicon Mx processors)**
+
+    ```bash
+    conda env create --platform osx-64 -f requirements.yml
+    conda activate reservoir
+    conda env config vars set CONDA_SUBDIR=osx-64
+    conda deactivate
+    conda activate reservoir
+    pip install tensorflow-macos tensorflow-metal
+    ```
+
+2. **Download data**
 
     Trained reservoir models and most important datasets are available as a Zenodo archive: <https://doi.org/10.5281/zenodo.14961168>. Extract the files and place them in the `Dataset-input`, `Reservoir`, `Result` directory.
    
+## 3. Citation
+
+If you use this software, please cite it as below.
+
+> *Living Bacterial Reservoir Computers for Information Processing and Sensing*. Paul Ahavi; Thi-Ngoc-An Hoang; Philippe Meyer; Sylvie Berthier; Federica Fiorini; Florence Castelli; Olivier Epaulard; Audrey Le Gouellec; Jean-Loup Faulon. Preprint: <https://doi.org/10.1101/2024.09.12.612674>.
