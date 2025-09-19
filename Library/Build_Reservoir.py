@@ -256,7 +256,7 @@ class RC_Model:
 
         if len(X) < 1 or len(Y) < 1:
             sys.exit('must provide X and Y arrays') 
-            
+
         # Training parameters apply MinMax scaler to X
         self.mode = mode
         self.reservoirfile = reservoirfile
@@ -278,7 +278,7 @@ class RC_Model:
         # Create reservoir
         self.res = Neural_Model()
         self.res.load(reservoirfile)
-        self.res.get_parameter(verbose=verbose)
+        # self.res.get_parameter(verbose=verbose) # !!!!
         
         # Get matrices for loss computation
         self.S = self.res.S # Stoichiometric matrix
@@ -292,7 +292,7 @@ class RC_Model:
         # Set prior network
         if n_hidden_prior > -1: 
             output_dim_prior = self.res.X.shape[0] \
-            if activation_prior == 'gumbel_softmax' else self.res.input_dim
+            if activation_prior == 'gumbel_softmax' else self.res.input_dim # OK
             self.prior = Neural_Model(model_type = 'ANN_Dense',
                                       input_dim = self.input_dim, 
                                       output_dim = output_dim_prior,
@@ -303,11 +303,12 @@ class RC_Model:
         # take as input the objective of the reservoir
         if n_hidden_post > -1:
             self.post = Neural_Model(model_type = 'ANN_Dense',
-                                     input_dim = self.output_dim, 
+                                     input_dim = self.res.output_dim, # !!!!
                                      output_dim = self.output_dim,
                                      n_hidden = n_hidden_post, 
                                      hidden_dim = hidden_dim_post,
                                      activation = activation_post)
+            print('self.post.input_dim, self.post.output_dim', self.post.input_dim, self.post.output_dim)
         
     def printout(self, filename=''):
         if filename != '':
@@ -478,7 +479,7 @@ def RC_write_multiple(reservoirfile, resultfile,
     for i in range(int(multiple)):
         resfi = f'{reservoirfile}_{str(i)}' if multiple > 1 else reservoirfile
         reservoir.load(resfi)
-        reservoir.get_parameter(verbose=verbose)
+        # reservoir.get_parameter(verbose=verbose) !!!!
         Res_inputs = tf.constant(Xr, dtype=tf.float32)
         pred = RC_reservoir_matrix_bias(reservoir, Res_inputs, model.mode).numpy()
         y_growth = pred[:,0].reshape(-1, 1) 
