@@ -80,7 +80,7 @@ The following steps will set up a `reservoir` conda environment.
 
 2. **Download data**
 
-    Trained reservoir models and most important datasets are available as a Zenodo archive: <https://doi.org/10.5281/zenodo.14961168>. Extract the files and place them in the `Dataset-input`, `Reservoir`, `Result` directory.
+    Trained reservoir models and most important datasets are available as a Zenodo archive: <https://doi.org/10.5281/zenodo.14961167>. Extract the files and place them in the `Dataset-input`, `Reservoir`, `Result` directory.
    
 ## 3. Citation
 
