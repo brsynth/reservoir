@@ -382,7 +382,7 @@ def get_loss_evaluate(x, y_true, y_pred, parameter, verbose=False):
     return loss
 
 def evaluate_model(model, x, y_true, parameter, verbose=False):
-    # Return y_pred, stats (R2/Acc) for objective
+    # Return y_pred, stats (R2/Acc) 
     # and error on constraints for regression and classification
     # if input model than x, y_true sent to input model
     from sklearn.metrics import r2_score
@@ -631,7 +631,7 @@ class Neural_Model:
     # To save, load & print all kinds of models including reservoirs
     def __init__(self,
                  trainingfile=None, # training set parameter file
-                 objective=None,
+                 objective=False,
                  model=None, # the actual Keras model
                  model_type='AMN', # the function called Dense, AMN, RC
                  scaler=False, # X is not scaled by default
@@ -651,7 +651,6 @@ class Neural_Model:
         self.trainingfile = trainingfile
         self.model = model
         self.model_type = model_type
-        self.objective = objective
         self.scaler = float(scaler) # From bool to float
         self.input_dim = input_dim 
         self.output_dim = output_dim 
@@ -671,11 +670,12 @@ class Neural_Model:
         else:
             self.number_constraint = 0
         # Get additional parameters (matrices)
-        self.get_parameter(verbose=verbose)
+        self.get_parameter(init=True, objective=objective, verbose=verbose)
         
-    def get_parameter(self, verbose=False):
+    def get_parameter(self, init=False, objective=False, verbose=False):
         from Library.Build_Dataset import TrainingSet, get_index_from_id
         # load parameter file if provided
+
         if self.trainingfile is None:
             return
         if not os.path.isfile(self.trainingfile+'.npz'):
@@ -683,9 +683,24 @@ class Neural_Model:
             sys.exit('parameter file not found')
         parameter = TrainingSet()
         parameter.load(self.trainingfile)
+        if verbose == 2:
+            print('1. in get_parameter parameter.Y.shape self.output_dim', 
+                  parameter.Y.shape, self.output_dim)
+            
+        # Dealing with objective and Y filtering !!!!
+        if init:
+            if objective:
+                self.objective = parameter.objective 
+            else:
+                self.objective = None
+                
         if self.objective:
             parameter.filter_measure(measure=self.objective, verbose=verbose)
             self.Yall = parameter.Yall
+        if verbose == 2:
+            print('2. in get_parameter self.objective parameter.Y.shape self.output_dim', 
+                  self.objective, parameter.Y.shape, self.output_dim)
+
         # matrices from parameter file 
         self.cobramodel = parameter.model
         self.medium = parameter.medium
@@ -694,9 +709,14 @@ class Neural_Model:
         self.Pko = parameter.Pko # Matrix from reaction to ko        
         self.Pout = parameter.Pout # Measure matrix from reactions to measures
         self.X, self.Y = parameter.X, parameter.Y # Training set 
+        
         # Update input_dim and output_dim
         self.input_dim = self.input_dim if self.input_dim > 0 else parameter.X.shape[1]
         self.output_dim = self.output_dim if self.output_dim > 0 else parameter.Y.shape[1]
+        if verbose == 2:
+            print('3. in get_parameter self.objective parameter.Y.shape self.output_dim', 
+                  self.objective, parameter.Y.shape, self.output_dim)
+
         if self.input_dim != parameter.X.shape[1]:
             end = min(parameter.X.shape[1], self.input_dim)
             self.X = self.X[:,:end]
@@ -705,6 +725,9 @@ class Neural_Model:
             end = min(parameter.Y.shape[1], self.output_dim)
             self.Y = self.Y[:,:end]
             self.output_dim = end
+        if verbose == 2:
+            print('4. in get_parameter self.objective self.Y.shape self.output_dim', 
+                  self.objective, self.Y.shape, self.output_dim)
             
     def save(self, filename, verbose=False):
         fileparam = filename + "_param.csv"
@@ -772,8 +795,17 @@ class Neural_Model:
         self.objective = self.objective.replace('\'', '')
         self.objective = self.objective.replace("\"", "")
         self.objective = self.objective.split(',')
+        if self.objective: # Dealing with empty objective !!!!
+            if self.objective[0] == 'None':
+                self.objective = None
         # Get additional parameters (matrices)
+        if verbose == 2: 
+            print('in loading before calling get_parameter self.objective, self.output_dim', 
+                  self.objective , self.output_dim)
         self.get_parameter(verbose=verbose)
+        if verbose == 2: 
+            print('in loading after calling get_parameter self.objective, self.output_dim', 
+                  self.objective , self.output_dim)
         self.Y = self.Y[:,:self.output_dim]
         # Then load model
         self.model = load_model(filemodel, compile=False)
